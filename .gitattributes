@@ -1,0 +1,29 @@
+# Handle line endings consistently
+* text=auto
+
+# Force JSON and JS files to use LF in the repo
+*.js text eol=lf
+*.json text eol=lf
+*.ts text eol=lf
+
+# Force shell scripts to LF (important for Linux)
+*.sh text eol=lf
+
+# Windows batch files should use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Markdown and text files normalized
+*.md text eol=lf
+*.txt text eol=lf
+
+# Binary files should not be modified
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
