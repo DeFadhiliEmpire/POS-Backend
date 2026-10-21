@@ -114,6 +114,8 @@ router.post("/auth/signup", async (req, res) => {
       email: normalizedEmail,
       phone: phone.trim(),
       password: hashedPassword,
+      isMfaEnabled: false,
+      mfaSecretEncrypted: encryptedSecret,
       role: OWNER_ROLE,
       isActive: true,
     });

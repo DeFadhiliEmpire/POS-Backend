@@ -27,6 +27,10 @@ function encrypt(text) {
 }
 
 function decrypt(payload) {
+  if (!payload || typeof payload !== "string") {
+    throw new Error("Invalid payload passed to decrypt()");
+  }
+
   const [ivHex, authTagHex, encryptedHex] = payload.split(":");
 
   const decipher = crypto.createDecipheriv(
