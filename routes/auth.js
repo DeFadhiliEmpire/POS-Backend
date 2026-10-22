@@ -23,6 +23,8 @@ const {
   hashRefreshToken,
 } = require("../services/tokenService.js");
 
+const { sendPasswordResetEmail } = require("../services/emailService.js");
+
 const authenticateJWT = require("../middleware/authenticate.js");
 const authorizeRoles = require("../middleware/roleMiddleware.js");
 
@@ -350,6 +352,121 @@ router.post("/auth/verify-login-mfa", async (req, res) => {
       .status(500)
       .json({ success: false, message: "MFA authentication failed" });
   }
+});
+
+//password reset route
+router.post("/auth/forgot-password", async (req, res) => {
+  const genericMessage =
+    "If an account for this email, a password reset link will be sent.";
+
+  try {
+    const { email } = req.body;
+
+    if (typeof email !== "string" || !email.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid email address is required",
+      });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const user = await User.findOne({ email: normalizedEmail, isActive: true });
+
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: genericMessage,
+      });
+    }
+
+    //generate a secure single use token
+    const rawToken = crypto.randomBytes(32).toString("hex");
+
+    //store SHA-256 hash in MongoDb
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(rawToken)
+      .digest("hex");
+
+    const expiryMinutes = 15;
+    const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
+
+    user.resetPasswordTokenHash = tokenHash;
+    user.resetPasswordExpires = expiresAt;
+
+    await user.save();
+
+    const frontendUrl = process.env.FRONTEND_URL;
+
+    if (!frontendUrl) {
+      throw new Error("FRONTEND_URL is missing from environment variables");
+    }
+
+    const resetUrl = new URL("/reset-password", frontendUrl);
+    resetUrl.searchParams.set("token", rawToken);
+
+    try {
+      await sendPasswordResetEmail(user.email, resetUrl.toString());
+    } catch (emailError) {
+      // Invalidate the token if delivery fails.
+      await user.updateOne(
+        { _id: user._id, resetPasswordTokenHash: tokenHash },
+        { $unset: { resetPasswordTokenHash: 1, resetPasswordExpires: 1 } },
+      );
+
+      throw emailError;
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: genericMessage,
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error.message);
+    return res.status(209).json({
+      success: true,
+      message:
+        "If an account exists for that email, a password reset link will be sent.",
+    });
+  }
+});
+
+//reset password
+router.post("/auth/reset-password/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password, confirmPassword } = req.body;
+
+    if (typeof token !== "string" || !/^[a-f0-9]{64}$/i.test(token)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired password reset link",
+      });
+    }
+
+    if (typeof password !== "string" || typeof confirmPassword !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Password and confirmation are required",
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters long",
+      });
+    }
+
+    if (password !== confirmPassword) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Passwords do not match" });
+    }
+
+    const tokenHash = crypto;
+  } catch (error) {}
 });
 
 //create manager/cashier account

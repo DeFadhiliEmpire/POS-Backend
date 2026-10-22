@@ -29,6 +29,8 @@ const userSchema = new mongoose.Schema(
     oauthId: { type: String, default: null, index: true },
     isActive: { type: Boolean, default: true },
     lastLogin: { type: Date },
+    resetPasswordTokenHash: { type: String, select: false },
+    resetPasswordExpires: { type: Date, select: false },
   },
   { timestamps: true },
 );
