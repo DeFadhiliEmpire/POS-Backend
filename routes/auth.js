@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 
@@ -465,7 +466,7 @@ router.post("/auth/reset-password/:token", async (req, res) => {
         .json({ success: false, message: "Passwords do not match" });
     }
 
-    const tokenHash = crypto.createHash("sha256").update(token).digest(hex);
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
@@ -483,7 +484,7 @@ router.post("/auth/reset-password/:token", async (req, res) => {
         },
       },
       {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       },
     );
