@@ -465,8 +465,48 @@ router.post("/auth/reset-password/:token", async (req, res) => {
         .json({ success: false, message: "Passwords do not match" });
     }
 
-    const tokenHash = crypto;
-  } catch (error) {}
+    const tokenHash = crypto.createHash("sha256").update(token).digest(hex);
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const user = await User.findOneAndUpdate(
+      {
+        resetPasswordTokenHash: tokenHash,
+        resetPasswordExpires: { $gt: new Date() },
+        isActive: true,
+      },
+      {
+        $set: { password: hashedPassword },
+        $unset: {
+          resetPasswordTokenHash: 1,
+          resetPasswordExpires: 1,
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired password reset link",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successfully. Please log in again.",
+    });
+  } catch (error) {
+    console.error("Reset password error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to reset password at this time",
+    });
+  }
 });
 
 //create manager/cashier account
