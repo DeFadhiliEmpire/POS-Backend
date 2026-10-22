@@ -63,6 +63,7 @@ router.post("/auth/signup", async (req, res) => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedBusinessName = businessName.trim().toUpperCase();
 
     if (password.length < 8) {
       return res.status(400).json({
@@ -83,7 +84,7 @@ router.post("/auth/signup", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 12);
 
     //generate secret for TOTP
-    const secret = generateSecret(normalizedEmail);
+    const secret = generateSecret(normalizedEmail, normalizedBusinessName);
 
     const encryptedSecret = encrypt(secret.base32);
 
@@ -266,13 +267,6 @@ router.post("/auth/login", async (req, res) => {
       message: "Password verified. MFA verification required",
       mfaRequired: true,
       challange,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Login successfully",
-      token,
-      role: user.role,
     });
   } catch (err) {
     console.error("Login error:", err);

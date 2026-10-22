@@ -3,10 +3,10 @@ const QRCode = require("qrcode");
 
 const { encrypt, decrypt } = require("./encryptionService.js");
 
-function generateSecret(email) {
+function generateSecret(email, businessName) {
   return speakeasy.generateSecret({
-    name: `FreshMart:${email}`,
-    issuer: "FrestMart",
+    name: `${businessName}:${email}`,
+    issuer: `${businessName}`,
     length: 32,
   });
 }
