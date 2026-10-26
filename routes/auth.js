@@ -265,14 +265,14 @@ router.post("/auth/login", async (req, res) => {
       { expiresIn: "5m" },
     );
 
-    res.json({
+    return res.status(200).json({
       success: true,
       message: "Password verified. MFA verification required",
       mfaRequired: true,
       challange,
     });
-  } catch (err) {
-    console.error("Login error:", err);
+  } catch (error) {
+    console.error("Login error:", error);
 
     return res
       .status(500)
@@ -348,7 +348,7 @@ router.post("/auth/verify-login-mfa", async (req, res) => {
       RefreshToken: refreshToken,
     });
   } catch (error) {
-    console.error("Login error:", err);
+    console.error("Login error:", error);
     return res
       .status(500)
       .json({ success: false, message: "MFA authentication failed" });
