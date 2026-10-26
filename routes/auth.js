@@ -277,7 +277,8 @@ router.post("/auth/login", async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Password verified. MFA verification required",
+      message:
+        "Password verified. MFA verification required. Enter token from Authenticator App.",
       mfaRequired: true,
       challange,
     });
