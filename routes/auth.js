@@ -341,11 +341,20 @@ router.post("/auth/verify-login-mfa", async (req, res) => {
     const accessToken = createAccessToken(user);
     const refreshToken = await createRefreshToken(user);
 
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/auth",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
     return res.status(200).json({
       success: true,
       message: "Login successful",
       AccessToken: accessToken,
       RefreshToken: refreshToken,
+      user,
     });
   } catch (error) {
     console.error("Login error:", error);
