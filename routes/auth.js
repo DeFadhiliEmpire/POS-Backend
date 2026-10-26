@@ -31,6 +31,16 @@ const authorizeRoles = require("../middleware/roleMiddleware.js");
 
 const router = express.Router();
 
+const REFRESH_COOKIE_NAME = "refreshToken";
+
+const refreshCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  path: "/auth",
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+};
+
 const OWNER_ROLE = "owner";
 
 const ROLES = {
@@ -341,26 +351,112 @@ router.post("/auth/verify-login-mfa", async (req, res) => {
     const accessToken = createAccessToken(user);
     const refreshToken = await createRefreshToken(user);
 
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/auth",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions);
 
     return res.status(200).json({
       success: true,
       message: "Login successful",
-      AccessToken: accessToken,
-      RefreshToken: refreshToken,
-      user,
+      ccessToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        businessId: user.businessId,
+      },
     });
   } catch (error) {
     console.error("Login error:", error);
     return res
       .status(500)
       .json({ success: false, message: "MFA authentication failed" });
+  }
+});
+
+//refresh token route
+router.post("/auth/refresh-token", async (req, res) => {
+  try {
+    const rawRawfreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+
+    if (!rawRawfreshToken) {
+      return res.status(401).json({
+        success: false,
+        message: "Refresh token is missing. Please log in again.",
+      });
+    }
+
+    const tokenHash = hashRefreshToken(rawRawfreshToken);
+    const now = new Date();
+
+    //automatically revoke the token so it cannot be reused concurrently
+    const storedToken = await RefreshToken.findOneAndUpdate(
+      {
+        tokenHash,
+        revokedAt: null,
+        expiresAt: { $gt: now },
+      },
+      {
+        $set: { revokedAt: now },
+      },
+      {
+        returnDocument: "after",
+      },
+    );
+
+    if (!storedToken) {
+      res.clearCookie(REFRESH_COOKIE_NAME, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/auth",
+      });
+
+      return res.status(401).json({
+        success: false,
+        message: "Refresh token is invalid,expired or already used.",
+      });
+    }
+
+    const user = await User.findById(storedToken.userId);
+
+    if (!user || !user.isActive) {
+      res.clearCookie(REFRESH_COOKIE_NAME, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/auth",
+      });
+
+      return res.status(401).json({
+        success: false,
+        message: "Your session is no longer valid. Please log in again.",
+      });
+    }
+
+    const accessToken = createAccessToken(user);
+
+    const newRefreshToken = await createRefreshToken(user);
+    const newRefreshTokenHash = hashRefreshToken(newRefreshToken);
+
+    await RefreshToken.updateOne(
+      { _id: storedToken._id },
+      { $set: { replacedByTokenHash: newRefreshTokenHash } },
+    );
+
+    res.cookie(REFRESH_COOKIE_NAME, newRefreshToken, refreshCookieOptions);
+
+    return res.status(200).json({
+      success: true,
+      message: "Access token refreshed successfully.",
+      accessToken,
+    });
+  } catch (error) {
+    console.error("Refresh token error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to refresh your session.",
+    });
   }
 });
 
@@ -515,6 +611,116 @@ router.post("/auth/reset-password/:token", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Unable to reset password at this time",
+    });
+  }
+});
+
+//get the currently authenticated user's profile
+router.get("/auth/me", authenticateJWT, async (req, res) => {
+  try {
+    const userId = req.user?.userId || req.user?.id || req.user?._id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid authentication token.",
+      });
+    }
+
+    const user = await User.findById(userId)
+      .select(
+        "name email phone role businessId isActive isMfaEnabled lastLogin",
+      )
+      .populate("businessId", "name currency timezone isActive");
+
+    if (!user || !user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: "User account is unavailable or inactive.",
+      });
+    }
+
+    if (user.businessId && user.businessId.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: "This business account is inactive.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        business: user.businessId
+          ? {
+              id: user.businessId._id,
+              name: user.businessId.name,
+              currency: user.businessId.currency,
+              timezone: user.businessId.timezone,
+            }
+          : null,
+        isMfaEnabled: user.isMfaEnabled,
+        lastLogin: user.lastLogin,
+      },
+    });
+  } catch (error) {
+    console.error("Get current user error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to retrieve your profile.",
+    });
+  }
+});
+
+// Log out and revoke the current refresh token
+router.post("/auth/logout", async (req, res) => {
+  try {
+    const rawRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+
+    if (rawRefreshToken) {
+      const tokenHash = hashRefreshToken(rawRefreshToken);
+
+      await RefreshToken.findOneAndUpdate(
+        {
+          tokenHash,
+          revokedAt: null,
+        },
+        {
+          $set: { revokedAt: new Date() },
+        },
+      );
+    }
+
+    res.clearCookie(REFRESH_COOKIE_NAME, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/auth",
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Logged out successfully.",
+    });
+  } catch (error) {
+    console.error("Logout error:", error);
+
+    // Clear the browser cookie even if the database operation fails.
+    res.clearCookie(REFRESH_COOKIE_NAME, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/auth",
+    });
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to complete logout on the server.",
     });
   }
 });
