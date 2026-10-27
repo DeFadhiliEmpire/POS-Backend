@@ -490,7 +490,7 @@ router.post("/auth/forgot-password", async (req, res) => {
     //generate a secure single use token
     const rawToken = crypto.randomBytes(32).toString("hex");
 
-    //store SHA-256 hash in MongoDb
+    //store SHA-256 hash in MongoDB
     const tokenHash = crypto
       .createHash("sha256")
       .update(rawToken)
