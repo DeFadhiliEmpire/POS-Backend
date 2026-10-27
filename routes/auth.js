@@ -322,9 +322,9 @@ router.post("/auth/verify-login-mfa", async (req, res) => {
         .json({ success: false, message: "Invalid MFA challange" });
     }
 
-    const user = await User.findById(decoded.userId).select(
-      "+mfaSecretEncrypted",
-    );
+    const user = await User.findById(decoded.userId)
+      .select("+mfaSecretEncrypted")
+      .populate("businessId", "name");
 
     if (!user) {
       return res
@@ -363,7 +363,8 @@ router.post("/auth/verify-login-mfa", async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        businessId: user.businessId,
+        businessId: user.businessId._id,
+        businessName: user.businessId.name,
       },
     });
   } catch (error) {
