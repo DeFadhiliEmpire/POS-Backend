@@ -13,6 +13,9 @@ const { router: syncRoutes } = require("./routes/syncRoutes.js");
 const { router: productRouter } = require("./routes/productRoutes.js");
 const { router: authRouter } = require("./routes/auth.js");
 const { router: categoryRouter } = require("./routes/categoryRoutes.js");
+const {
+  router: catalogueSyncRoutes,
+} = require("./routes/catalogueSyncRoutes.js");
 
 //middleware
 app.use(
@@ -28,6 +31,7 @@ app.use(productRouter);
 app.use(authRouter);
 app.use(syncRoutes);
 app.use(categoryRouter);
+app.use(catalogueSyncRoutes);
 
 app.get("/", (req, res) => {
   res.send("POS Backend is running!");
