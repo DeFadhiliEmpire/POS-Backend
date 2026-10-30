@@ -54,6 +54,7 @@ const productSchema = new mongoose.Schema(
     },
     imageUrl: { type: String, trim: true },
     isActive: { type: Boolean, default: true },
+    version: { type: Number, default: 1, min: 1 },
   },
   {
     timestamps: true,

@@ -1,9 +1,35 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const Category = require("../models/Category.js");
+const Product = require("../models/Product.js");
 const authenticateJWT = require("../middleware/authenticate.js");
 const authorizeRoles = require("../middleware/roleMiddleware.js");
 
 const router = express.Router();
+const canManage = authorizeRoles("owner", "manager");
+
+const handleError = (res, error, message) => {
+  console.error(message, err);
+
+  if (error.code === 11000) {
+    return res.status(409).json({
+      success: false,
+      message: "A category with this name already exists",
+    });
+  }
+
+  if (error.name === "ValidationError" || error.name === "CastError") {
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+
+  return res.status(500).json({
+    success: false,
+    message: "Internal server error",
+  });
+};
 
 //get all categories for a business
 router.get("/category", authenticateJWT, async (req, res) => {
@@ -20,10 +46,13 @@ router.get("/category", authenticateJWT, async (req, res) => {
       isActive: true,
     }).sort({ name: 1 });
 
-    res.json({ success: true, categories });
+    return res.status(200).json({
+      success: true,
+      categories,
+    });
   } catch (error) {
     console.error("Get categories error:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    return handleError(res, error, "Get categories error");
   }
 });
 
@@ -34,6 +63,12 @@ router.get("/category/:id", authenticateJWT, async (req, res) => {
         success: false,
         message: "Authenticated business user required",
       });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid category ID" });
     }
 
     const categoryId = req.params.id;
@@ -106,74 +141,153 @@ router.post(
   },
 );
 
-// Update a category
-router.put(
-  "/category/:id",
-  authenticateJWT,
-  authorizeRoles("owner"),
-  async (req, res) => {
-    try {
-      const { name, isActive, description } = req.body;
+// Update a category with optimistic version check
+router.put("/category/:id", authenticateJWT, canManage, async (req, res) => {
+  try {
+    const { name, isActive, description, expectedVersion } = req.body;
 
-      const category = await Category.findOneAndUpdate(
-        { _id: req.params.id, businessId: req.user.businessId },
-        { $set: { name, isActive, description } },
-        { new: true },
-      );
-
-      if (!category) {
-        return res
-          .status(404)
-          .json({ success: false, message: "Category not found" });
-      }
-
-      res.json({
-        success: true,
-        message: "Category updated successfully",
-        category,
-      });
-    } catch (error) {
-      console.error("Update category error:", error);
-      res
-        .status(500)
-        .json({ success: false, message: "Internal server error" });
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid category ID" });
     }
-  },
-);
 
-// Delete a category
-router.delete(
-  "/category/:id",
-  authenticateJWT,
-  authorizeRoles("owner"),
-  async (req, res) => {
-    try {
-      if (!req.user || !req.user.businessId) {
-        return res.status(401).json({
-          success: false,
-          message: "Authenticated business user required",
-        });
-      }
+    if (!Number.isInteger(expectedVersion)) {
+      return res.status(400).json({
+        success: false,
+        message: "expectedVersion is required",
+      });
+    }
 
-      const category = await Category.findOneAndDelete({
+    if (!name?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Category name is required",
+      });
+    }
+
+    const category = await Category.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        businessId: req.user.businessId,
+        isActive: true,
+        version: expectedVersion,
+      },
+      { $set: { name, isActive, description }, $inc: { version: 1 } },
+      { new: true, runValidators: true },
+    );
+    if (!category) {
+      const current = await Category.findOne({
         _id: req.params.id,
         businessId: req.user.businessId,
       });
 
-      if (!category) {
+      if (!current) {
         return res
           .status(404)
           .json({ success: false, message: "Category not found" });
       }
 
-      res.json({ success: true, message: "Category deleted successfully" });
-    } catch (err) {
-      console.error("Delete category error:", err);
-      res
-        .status(500)
-        .json({ success: false, message: "Internal server error" });
+      return res.status(409).json({
+        success: false,
+        message: "Category version conflict. Refresh before editing.",
+        currentVersion: current.version,
+      });
     }
-  },
-);
+
+    return res.status(200).json({
+      success: true,
+      message: "Category updated successfully",
+      category,
+    });
+  } catch (error) {
+    console.error("Update category error:", error);
+    return handleError(res, error, "Update category error");
+  }
+});
+
+// Delete a category
+router.delete("/category/:id", authenticateJWT, canManage, async (req, res) => {
+  try {
+    if (!req.user || !req.user.businessId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authenticated business user required",
+      });
+    }
+
+    const { expectedVersion } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid category ID" });
+    }
+
+    if (!Number.isInteger(expectedVersion)) {
+      return res.status(400).json({
+        success: false,
+        message: "expectedVersion is required",
+      });
+    }
+
+    const activeProducts = await Product.countDocuments({
+      businessId: req.user.businessId,
+      category: req.params.id,
+      isActive: true,
+    });
+
+    if (activeProducts > 0) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Move active products to another category before deactivating this category",
+        activeProducts,
+      });
+    }
+
+    const category = await Category.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        businessId: req.user.businessId,
+        isActive: true,
+        version: expectedVersion,
+      },
+      {
+        $set: { isActive: false },
+        $inc: { version: 1 },
+      },
+      { new: true },
+    );
+
+    if (!category) {
+      const current = await Category.findOne({
+        _id: req.params.id,
+        businessId: req.user.businessId,
+      });
+
+      if (!current) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Category not found" });
+      }
+
+      return res.status(409).json({
+        success: false,
+        message: "Category version conflict or already inactive",
+        currentVersion: current.version,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Category deactivated successfully",
+      category,
+    });
+  } catch (error) {
+    console.error("Delete category error:", err);
+    return handleError(res, error, "Deactivate category error");
+  }
+});
 
 module.exports = { router };

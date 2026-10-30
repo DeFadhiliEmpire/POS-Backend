@@ -24,6 +24,7 @@ const categorySchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    version: { type: Number, default: 1, min: 1 },
   },
   {
     timestamps: true,
@@ -31,6 +32,8 @@ const categorySchema = new mongoose.Schema(
 );
 
 categorySchema.index({ businessId: 1, name: 1 }, { unique: true });
+
+categorySchema.index({ businessId: 1, updatedAt: 1 });
 
 const Category = mongoose.model("Category", categorySchema);
 

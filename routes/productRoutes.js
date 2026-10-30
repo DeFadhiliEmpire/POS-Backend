@@ -1,10 +1,51 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const Product = require("../models/Product.js");
-const StockMovement = require("../models/StockMovement.js");
+const Category = require("../models/Category.js");
+//const StockMovement = require("../models/StockMovement.js");
 const { createStockMovement } = require("../services/stockService.js");
 const authenticateJWT = require("../middleware/authenticate.js");
+const authorizeRoles = require("../middleware/roleMiddleware.js");
 
 const router = express.Router();
+const canManage = authorizeRoles("owner", "manager");
+
+const validId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+const validateCategory = async (categoryId, businessId) => {
+  if (!validId(categoryId)) return false;
+
+  return Boolean(
+    await Category.exists({
+      _id: categoryId,
+      businessId,
+      isActive: true,
+    }),
+  );
+};
+
+const handleError = (res, err, message) => {
+  console.error(message, err);
+
+  if (err.code === 11000) {
+    return res.status(409).json({
+      success: false,
+      message: "SKU, barcode or another unique value already exists",
+    });
+  }
+
+  if (err.name === "ValidationError" || err.name === "CastError") {
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
+  return res.status(500).json({
+    success: false,
+    message: "Internal server error",
+  });
+};
 
 //get products
 router.get("/products", authenticateJWT, async (req, res) => {
@@ -45,6 +86,12 @@ router.get("/products/:id", authenticateJWT, async (req, res) => {
       });
     }
 
+    if (!validId(req.params.id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid product ID" });
+    }
+
     const businessId = req.user.businessId;
     const productId = req.params.id;
 
@@ -75,7 +122,7 @@ router.get("/products/:id", authenticateJWT, async (req, res) => {
 });
 
 //create products and add
-router.post("/products/add", authenticateJWT, async (req, res) => {
+router.post("/products/add", canManage, authenticateJWT, async (req, res) => {
   try {
     if (!req.user || !req.user.businessId) {
       return res.status(401).json({
@@ -118,6 +165,13 @@ router.post("/products/add", authenticateJWT, async (req, res) => {
       });
     }
 
+    if (!(await validateCategory(category, req.user.businessId))) {
+      return res.status(400).json({
+        success: false,
+        message: "Category is invalid, inactive or belongs to another business",
+      });
+    }
+
     const existingProduct = await Product.findOne({
       businessId,
       sku: sku.toUpperCase(),
@@ -138,11 +192,14 @@ router.post("/products/add", authenticateJWT, async (req, res) => {
       category,
       buyingPrice,
       sellingPrice,
-      stockQuantity: stockQuantity || 0,
       lowStockThreshold:
         lowStockThreshold !== undefined ? lowStockThreshold : 5,
       unit: unit || "piece",
-      image,
+      imageUrl,
+      stockQuantity: stockQuantity || 0,
+      y,
+      version: 1,
+      isActive: true,
     });
 
     await product.save();
@@ -172,6 +229,21 @@ router.put("/products/:id", authenticateJWT, async (req, res) => {
       });
     }
 
+    if (!validId(req.params.id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid product ID" });
+    }
+
+    const { expectedVersion } = req.body;
+
+    if (!Number.isInteger(expectedVersion)) {
+      return res.status(400).json({
+        success: false,
+        message: "expectedVersion is required",
+      });
+    }
+
     const businessId = req.user.businessId;
     const productId = req.params.id;
 
@@ -184,8 +256,7 @@ router.put("/products/:id", authenticateJWT, async (req, res) => {
       sellingPrice,
       lowStockThreshold,
       unit,
-      image,
-      isActive,
+      imageUrl,
     } = req.body;
 
     if (!name || !sku || !category) {
@@ -216,15 +287,11 @@ router.put("/products/:id", authenticateJWT, async (req, res) => {
       });
     }
 
-    const product = await Product.findOne({
-      _id: productId,
-      businessId,
-    });
-
-    if (!product) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Product not found" });
+    if (!(await validateCategory(category, req.user.businessId))) {
+      return res.status(400).json({
+        success: false,
+        message: "Category is invalid, inactive or belongs to another business",
+      });
     }
 
     const existingProduct = await Product.findOne({
@@ -240,37 +307,48 @@ router.put("/products/:id", authenticateJWT, async (req, res) => {
       });
     }
 
-    product.name = name;
-    product.sku = sku;
-    product.barcode = barcode;
-    product.category = category;
-    product.buyingPrice = buyingPrice;
-    product.sellingPrice = sellingPrice;
+    const product = await Product.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        businessId: req.user.businessId,
+        isActive: true,
+        version: expectedVersion,
+      },
+      {
+        $set: {
+          name: name.trim(),
+          sku: sku.trim().toUpperCase(),
+          barcode,
+          category,
+          buyingPrice,
+          sellingPrice,
+          ...(lowStockThreshold !== undefined && { lowStockThreshold }),
+          ...(unit !== undefined && { unit }),
+          ...(imageUrl !== undefined && { imageUrl }),
+        },
+        $inc: { version: 1 },
+      },
+      { new: true, runValidators: true },
+    );
 
-    if (lowStockThreshold !== undefined) {
-      product.lowStockThreshold = lowStockThreshold;
-    }
+    if (!product) {
+      const current = await Product.findOne({
+        _id: req.params.id,
+        businessId: req.user.businessId,
+      });
 
-    if (unit !== undefined) {
-      product.unit = unit;
-    }
+      if (!current) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Product not found" });
+      }
 
-    if (image !== undefined) {
-      product.image = image;
-    }
-
-    if (isActive !== undefined) {
-      product.isActive = isActive;
-    }
-
-    if (buyingPrice < 0 || sellingPrice < 0) {
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
-        message: "Prices cannot be negative",
+        message: "Product version conflict. Refresh before editing.",
+        currentVersion: current.version,
       });
     }
-
-    await product.save();
 
     return res.status(200).json({
       success: true,
@@ -280,14 +358,12 @@ router.put("/products/:id", authenticateJWT, async (req, res) => {
   } catch (err) {
     console.error("Error Updating product:", err);
 
-    return res
-      .status(500)
-      .json({ success: false, message: "Internal server error" });
+    return handleError(res, err, "Update product error");
   }
 });
 
 //deactivate a procuct
-router.delete("/products/:id", authenticateJWT, async (req, res) => {
+router.delete("/products/:id", authenticateJWT, canManage, async (req, res) => {
   try {
     if (!req.user || !req.user.businessId) {
       return res.status(401).json({
@@ -296,26 +372,50 @@ router.delete("/products/:id", authenticateJWT, async (req, res) => {
       });
     }
 
+    const { expectedVersion } = req.body;
+
+    if (!Number.isInteger(expectedVersion)) {
+      return res.status(400).json({
+        success: false,
+        message: "expectedVersion is required",
+      });
+    }
+
     const businessId = req.user.businessId;
     const productId = req.params.id;
 
-    const product = await Product.findOne({ _id: productId, businessId });
+    const product = await Product.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        businessId: req.user.businessId,
+        isActive: true,
+        version: expectedVersion,
+      },
+      {
+        $set: { isActive: false },
+        $inc: { version: 1 },
+      },
+      { new: true },
+    );
 
     if (!product) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Product not found" });
+      const current = await Product.findOne({
+        _id: req.params.id,
+        businessId: req.user.businessId,
+      });
+
+      if (!current) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Product not found" });
+      }
+
+      return res.status(409).json({
+        success: false,
+        message: "Product version conflict or already inactive",
+        currentVersion: current.version,
+      });
     }
-
-    if (!product.isActive) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Product is already inactive" });
-    }
-
-    product.isActive = false;
-
-    await product.save();
 
     return res.status(200).json({
       success: true,
@@ -366,10 +466,7 @@ router.post("/products/:id/stock", authenticateJWT, async (req, res) => {
   } catch (err) {
     console.error("Stock movement error:", err);
 
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+    return handleError(res, err, "Stock movement error");
   }
 });
 
