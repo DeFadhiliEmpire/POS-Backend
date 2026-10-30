@@ -11,8 +11,6 @@ const authorizeRoles = require("../middleware/roleMiddleware.js");
 
 const router = express.Router();
 
-const canManage = authorizeRoles("OWNER", "MANAGER");
-
 const MAX_OPERATIONS = 50;
 const MAX_DOWNLOADS = 500;
 
@@ -346,7 +344,7 @@ async function applyOperation(operation, context) {
 }
 
 // POST /sync/catalogue
-router.post("/sync/catalogue", authenticateJWT, canManage, async (req, res) => {
+router.post("/sync/catalogue", authenticateJWT, async (req, res) => {
   const businessId = req.user.businessId;
   const userId = req.user._id;
   const deviceId = req.headers["x-device-id"] || req.body.deviceId;
@@ -367,6 +365,18 @@ router.post("/sync/catalogue", authenticateJWT, canManage, async (req, res) => {
 
   const operations = req.body.operations ?? [];
   const lastSyncCursor = req.body.lastSyncCursor ?? 0;
+
+  const role = String(req.user.role || "").toUpperCase();
+
+  const canManageCatalogue = ["owner", "manager"].includes(role);
+
+  // Cashiers can download changes but cannot upload catalogue operations.
+  if (operations.length > 0 && !canManageCatalogue) {
+    return res.status(403).json({
+      success: false,
+      message: "You are not allowed to modify the catalogue",
+    });
+  }
 
   if (!Array.isArray(operations) || operations.length > MAX_OPERATIONS) {
     return res.status(400).json({
