@@ -53,6 +53,7 @@ const productSchema = new mongoose.Schema(
       default: "piece",
     },
     imageUrl: { type: String, trim: true },
+    imagePublicid: { type: String, trim: true },
     isActive: { type: Boolean, default: true },
     version: { type: Number, default: 1, min: 1 },
   },

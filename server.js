@@ -19,6 +19,9 @@ const {
 const {
   router: catalogueBootstrapRoutes,
 } = require("./routes/catalogueBootstrapRoutes.js");
+const {
+  router: catalogueImageRoutes,
+} = require("./routes/catalogueImageRoutes.js");
 
 //middleware
 app.use(
@@ -36,6 +39,7 @@ app.use(syncRoutes);
 app.use(categoryRouter);
 app.use(catalogueSyncRoutes);
 app.use(catalogueBootstrapRoutes);
+app.use(catalogueImageRoutes);
 
 app.get("/", (req, res) => {
   res.send("POS Backend is running!");
