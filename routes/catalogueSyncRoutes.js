@@ -24,6 +24,7 @@ const allowedProductFields = [
   "lowStockThreshold",
   "unit",
   "imageUrl",
+  "imagePublicId",
 ];
 
 const allowedCategoryFields = ["name", "description"];
