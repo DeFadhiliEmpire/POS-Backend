@@ -11,7 +11,7 @@ async function authenticateJWT(req, res, next) {
         .json({ success: false, message: "Authorization required" });
     }
 
-    const token = authHeader.split(" ")[1];
+    const token = req.cookies?.accessToken || authHeader.split(" ")[1];
 
     if (!token) {
       return res.status(401).json({
