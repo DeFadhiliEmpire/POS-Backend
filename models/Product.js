@@ -28,6 +28,11 @@ const productSchema = new mongoose.Schema(
       ref: "Category",
       required: true,
     },
+    categoryUid: {
+      type: String,
+      required: true,
+      trim: true,
+    },
     buyingPrice: {
       type: Number,
       required: true,
@@ -65,6 +70,8 @@ const productSchema = new mongoose.Schema(
 productSchema.index({ businessId: 1, sku: 1 }, { unique: true });
 
 productSchema.index({ businessId: 1, barcode: 1 });
+
+productSchema.index({ businessId: 1, categoryUid: 1 });
 
 const Product = mongoose.model("Product", productSchema);
 
