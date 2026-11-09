@@ -11,29 +11,29 @@ const router = express.Router();
 // First-time download of the complete catalogue.
 // Includes inactive records so devices receive deactivations too.
 router.get("/sync/catalogue/bootstrap", authenticateJWT, async (req, res) => {
-  const session = await mongoose.startSession();
+  const businessId = req.user.businessId;
+
+  if (!businessId) {
+    return res.status(400).json({
+      success: false,
+      message: "Business information is missing",
+    });
+  }
+
+  let session;
 
   try {
-    const businessId = req.user.businessId;
-
-    if (!businessId) {
-      return res.status(400).json({
-        success: false,
-        message: "Business information is missing",
-      });
-    }
-
-    let snapshot;
+    const session = await mongoose.startSession();
 
     session.startTransaction({ readConcern: { level: "snapshot" } });
 
-    const [categories, products, counter] = await Promise.all([
-      Category.find({ businessId }).session(session).lean(),
-
-      Product.find({ businessId }).session(session).lean(),
-
-      CatalogueSyncCounter.findOne({ businessId }).session(session).lean(),
-    ]);
+    const categories = await Category.find({ businessId })
+      .session(session)
+      .lean();
+    const products = await Product.find({ businessId }).session(session).lean();
+    const counter = await CatalogueSyncCounter.findOne({ businessId })
+      .session(session)
+      .lean();
 
     snapshot = {
       categories,
@@ -43,14 +43,25 @@ router.get("/sync/catalogue/bootstrap", authenticateJWT, async (req, res) => {
 
     await session.commitTransaction();
 
+    console.log("Catalogue bootstrap successful:", {
+      businessId,
+      categories: categories.length,
+      products: products.length,
+      cursor: snapshot.cursor,
+    });
+
     return res.status(200).json({
       success: true,
       message: "Catalogue bootstrap completed",
       snapshot,
     });
   } catch (error) {
-    if (session.inTransaction()) {
-      await session.abortTransaction();
+    if (session?.inTransaction()) {
+      try {
+        await session.abortTransaction();
+      } catch (abortError) {
+        console.error("Transaction abort failed:", abortError);
+      }
     }
 
     console.error("Catalogue bootstrap error:", error);
@@ -60,7 +71,9 @@ router.get("/sync/catalogue/bootstrap", authenticateJWT, async (req, res) => {
       message: "Failed to download catalogue",
     });
   } finally {
-    await session.endSession();
+    if (session) {
+      await session.endSession();
+    }
   }
 });
 
