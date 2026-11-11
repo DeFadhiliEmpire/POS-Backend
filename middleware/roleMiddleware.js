@@ -7,7 +7,15 @@ function authorizeRoles(...allowedRoles) {
           .json({ success: false, message: "Authentication required" });
       }
 
-      if (!allowedRoles.includes(req.user.role)) {
+      const userRole = String(req.user.role || "")
+        .trim()
+        .toUpperCase();
+
+      const permittedRoles = allowedRoles.map((role) =>
+        String(role).trim().toUpperCase(),
+      );
+
+      if (!permittedRoles.includes(userRole)) {
         return res.status(403).json({
           success: false,
           message: "You are not allowed to perform this action",
@@ -20,7 +28,7 @@ function authorizeRoles(...allowedRoles) {
 
       return res
         .status(500)
-        .json({ success: false, message: "Internl server error" });
+        .json({ success: false, message: "Internal server error" });
     }
   };
 }
