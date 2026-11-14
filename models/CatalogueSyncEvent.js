@@ -32,7 +32,8 @@ const catalogueSyncEventSchema = new mongoose.Schema(
     },
 
     entityId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: String,
+      trim: true,
       required: true,
     },
 

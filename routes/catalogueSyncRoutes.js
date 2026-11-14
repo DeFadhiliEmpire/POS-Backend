@@ -82,7 +82,7 @@ async function nextSequence(businessId, session) {
   const counter = await CatalogueSyncCounter.findOneAndUpdate(
     { businessId },
     { $inc: { sequence: 1 }, $setOnInsert: { businessId } },
-    { new: true, upsert: true, session },
+    { returnDocument: "after", upsert: true, session },
   );
 
   return counter.sequence;
@@ -105,12 +105,18 @@ async function applyOperation(operation, context) {
     throw new SyncError("Unsupported entity type");
   }
 
-  if (!["create", "update", "deactivate"].includes(action)) {
+  if (!["create", "update", "deactivate", "activate"].includes(action)) {
     throw new SyncError("Unsupported catalogue action");
   }
 
-  if (!validObjectId(entityId)) {
-    throw new SyncError("A valid entityId is required");
+  const validUUID = (value) =>
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    );
+
+  if (!validUUID(entityId)) {
+    throw new SyncError("A valid entityId (UUID) is required");
   }
 
   // Idempotency: an operation already committed is never applied again.
@@ -128,7 +134,6 @@ async function applyOperation(operation, context) {
     };
   }
 
-  const id = new mongoose.Types.ObjectId(entityId);
   let entity;
   let snapshot;
 
@@ -145,12 +150,14 @@ async function applyOperation(operation, context) {
       }
 
       entity = new Category({
-        _id: id,
         businessId,
+        categoryUid: entityId,
         name: payload.name.trim(),
         description: payload.description,
         isActive: true,
         version: 1,
+        createdBy: userId,
+        updatedBy: userId,
       });
 
       await entity.save({ session });
@@ -160,7 +167,7 @@ async function applyOperation(operation, context) {
       }
 
       const current = await Category.findOne({
-        _id: id,
+        categoryUid: entityId,
         businessId,
       }).session(session);
 
@@ -192,7 +199,7 @@ async function applyOperation(operation, context) {
       if (action === "deactivate") {
         const activeProducts = await Product.countDocuments({
           businessId,
-          category: id,
+          categoryUid: entityId,
           isActive: true,
         }).session(session);
 
@@ -204,6 +211,10 @@ async function applyOperation(operation, context) {
         }
 
         current.isActive = false;
+      }
+
+      if (action === "activate") {
+        current.isActive = true;
       }
 
       current.version += 1;
@@ -225,7 +236,7 @@ async function applyOperation(operation, context) {
       }
 
       const category = await Category.findOne({
-        _id: payload.category,
+        categoryUid: payload.category,
         businessId,
         isActive: true,
       }).session(session);
@@ -238,7 +249,6 @@ async function applyOperation(operation, context) {
       }
 
       entity = new Product({
-        _id: id,
         businessId,
         ...payload,
         name: payload.name.trim(),
@@ -256,7 +266,7 @@ async function applyOperation(operation, context) {
       }
 
       const current = await Product.findOne({
-        _id: id,
+        entityId,
         businessId,
       }).session(session);
 
@@ -327,7 +337,7 @@ async function applyOperation(operation, context) {
         deviceId,
         performedBy: userId,
         entityType,
-        entityId: id,
+        entityId,
         action,
         entityVersion: entity.version,
         sequence,

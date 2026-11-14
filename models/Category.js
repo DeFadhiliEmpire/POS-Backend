@@ -53,8 +53,6 @@ categorySchema.pre("validate", function (next) {
   if (this.name) {
     this.normalizedName = this.name.trim().normalize("NFKC").toLowerCase();
   }
-
-  next();
 });
 
 //unique category UID within a business
