@@ -39,7 +39,7 @@ const catalogueSyncEventSchema = new mongoose.Schema(
 
     action: {
       type: String,
-      enum: ["create", "update", "deactivate"],
+      enum: ["create", "update", "deactivate", "activate"],
       required: true,
     },
 
