@@ -171,15 +171,36 @@ async function applyOperation(operation, context) {
         businessId,
       }).session(session);
 
+      console.log("CATEGORY VERSION CHECK:", {
+        entityId,
+        action,
+        baseVersion,
+        serverVersion: current.version,
+        serverIsActive: current.isActive,
+        deviceId,
+      });
+
       if (!current) {
         throw new SyncError("Category not found");
       }
 
-      if (current.version !== baseVersion || !current.isActive) {
+      if (current.version !== baseVersion) {
         throw new SyncError(
           `Category version conflict. Current server version is ${current.version}`,
           "conflict",
         );
+      }
+
+      if (action === "update" && !current.isActive) {
+        throw new SyncError("Cannot update an inactive category", "conflict");
+      }
+
+      if (action === "deactivate" && !current.isActive) {
+        throw new SyncError("Category is already inactive", "conflict");
+      }
+
+      if (action === "activate" && current.isActive) {
+        throw new SyncError("Category is already active", "conflict");
       }
 
       if (action === "update") {
