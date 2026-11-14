@@ -295,7 +295,7 @@ async function applyOperation(operation, context) {
         throw new SyncError("Product not found");
       }
 
-      if (current.version !== baseVersion || !current.isActive) {
+      if (current.version !== baseVersion) {
         throw new SyncError(
           `Product version conflict. Current server version is ${current.version}`,
           "conflict",
@@ -316,7 +316,7 @@ async function applyOperation(operation, context) {
         });
 
         const category = await Category.findOne({
-          _id: payload.category ?? current.category,
+          categoryUid: payload.categoryUid,
           businessId,
           isActive: true,
         }).session(session);
