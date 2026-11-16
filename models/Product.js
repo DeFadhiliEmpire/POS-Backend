@@ -3,6 +3,12 @@ const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(
   {
+    productUid: {
+      type: String,
+      required: true,
+      unique: true,
+      default: randomUUID,
+    },
     businessId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Business",
@@ -73,7 +79,7 @@ productSchema.index({ businessId: 1, sku: 1 }, { unique: true });
 
 productSchema.index({ businessId: 1, barcode: 1 });
 
-productSchema.index({ businessId: 1, categoryUid: 1 });
+productSchema.index({ businessId: 1, category: 1 });
 
 const Product = mongoose.model("Product", productSchema);
 

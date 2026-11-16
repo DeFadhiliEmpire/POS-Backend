@@ -171,6 +171,10 @@ async function applyOperation(operation, context) {
         businessId,
       }).session(session);
 
+      if (!current) {
+        throw new SyncError("Category not found");
+      }
+
       console.log("CATEGORY VERSION CHECK:", {
         entityId,
         action,
@@ -179,10 +183,6 @@ async function applyOperation(operation, context) {
         serverIsActive: current.isActive,
         deviceId,
       });
-
-      if (!current) {
-        throw new SyncError("Category not found");
-      }
 
       if (current.version !== baseVersion) {
         throw new SyncError(
@@ -256,11 +256,40 @@ async function applyOperation(operation, context) {
         throw new SyncError("New products must use baseVersion 0");
       }
 
+      console.log("PRODUCT CATEGORY DEBUG:", {
+        incomingCategory: payload.category,
+        incomingCategoryType: typeof payload.category,
+        authenticatedBusinessId: businessId?.toString(),
+        categoryUidSchemaType: Category.schema.path("categoryUid")?.instance,
+      });
+
+      // First: search using only the UUID
+      const categoryByUid = await Category.findOne({
+        categoryUid: payload.category,
+      })
+        .session(session)
+        .lean();
+
+      console.log(
+        "CATEGORY FOUND BY UUID:",
+        categoryByUid
+          ? {
+              _id: categoryByUid._id?.toString(),
+              categoryUid: categoryByUid.categoryUid,
+              businessId: categoryByUid.businessId?.toString(),
+              isActive: categoryByUid.isActive,
+            }
+          : null,
+      );
+
+      // Second: perform the actual lookup
       const category = await Category.findOne({
         categoryUid: payload.category,
         businessId,
         isActive: true,
       }).session(session);
+
+      console.log("FINAL CATEGORY LOOKUP:", category ? "FOUND" : "NOT FOUND");
 
       if (!category) {
         throw new SyncError(
@@ -316,7 +345,7 @@ async function applyOperation(operation, context) {
         });
 
         const category = await Category.findOne({
-          categoryUid: payload.categoryUid,
+          categoryUid: payload.category,
           businessId,
           isActive: true,
         }).session(session);
