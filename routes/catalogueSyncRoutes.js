@@ -300,6 +300,7 @@ async function applyOperation(operation, context) {
 
       entity = new Product({
         businessId,
+        productUid: entityId,
         ...payload,
         name: payload.name.trim(),
         sku: payload.sku.trim().toUpperCase(),
@@ -316,7 +317,7 @@ async function applyOperation(operation, context) {
       }
 
       const current = await Product.findOne({
-        entityId,
+        productUid: entityId,
         businessId,
       }).session(session);
 
@@ -448,23 +449,29 @@ router.post("/sync/catalogue", authenticateJWT, canManage, async (req, res) => {
     const session = await mongoose.startSession();
 
     try {
-      session.startTransaction();
+      let result;
 
-      const result = await applyOperation(operation, {
-        businessId,
-        userId,
-        deviceId,
-        session,
+      await session.withTransaction(async () => {
+        result = await applyOperation(operation, {
+          businessId,
+          userId,
+          deviceId,
+          session,
+        });
       });
 
-      await session.commitTransaction();
       results.push(result);
     } catch (err) {
-      if (session.inTransaction()) {
-        await session.abortTransaction();
-      }
-
-      console.error("Catalogue operation failed:", err);
+      console.error("Catalogue operation failed:", {
+        operationId: operation?.operationId,
+        entityId: operation?.entityId,
+        entityType: operation?.entityType,
+        action: operation?.action,
+        code: err.code,
+        codeName: err.codeName,
+        errorLabels: err.errorLabels,
+        message: err.message,
+      });
 
       if (err.code === 11000) {
         results.push({

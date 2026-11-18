@@ -77,6 +77,8 @@ const productSchema = new mongoose.Schema(
 
 productSchema.index({ businessId: 1, sku: 1 }, { unique: true });
 
+productSchema.index({ businessId: 1, productUid: 1 }, { unique: true });
+
 productSchema.index({ businessId: 1, barcode: 1 });
 
 productSchema.index({ businessId: 1, category: 1 });
